@@ -1,0 +1,58 @@
+version: '3.8'
+services:
+  other_cdi_test:
+    image: ubuntu
+    devices:
+      - nvidia.com/gpu=all
+    command:
+      - bash
+      - -c
+      - |
+        nvidia-smi -L
+  nvidia_test: # this is not working
+    image: ubuntu:20.04
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu, utility, compute]
+    command:
+      - bash
+      - -c
+      - |
+        nvidia-smi -L
+  runtime_test: # this is working
+    image: ubuntu:20.04
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+    command:
+      - bash
+      - -c
+      - |
+        nvidia-smi -L
+  runtime_test2: # this should be working
+    image: ubuntu:20.04
+    devices:
+     - nvidia.com/gpu=all
+    security_opt:
+      - "label=disable"
+    command: nvidia-smi -L
+  cdi_test: # this is not working
+    image: ubuntu:20.04
+    deploy:
+      resources:
+        reservations:
+          devices:
+           - driver: cdi
+             device_ids:
+                - nvidia.com/gpu=all
+                - nvidia.com/gds=all
+                - nvidia.com/mofed=all
+    command:
+      - bash
+      - -c
+      - |
+        nvidia-smi -L

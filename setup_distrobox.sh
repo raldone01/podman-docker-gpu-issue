@@ -2,39 +2,42 @@
 
 set -x
 
-# Function stub for creating containers
 create_containers() {
     echo "Creating containers..."
 
-    distrobox create -n uwuntu-docker --image ubuntu:20.04 \
-    --additional-packages "systemd libsystemd0 git inetutils-ping inetutils-traceroute build-essential docker docker-compose" \
-    --init --unshare-netns --unshare-ipc --nvidia # omit the --nvidia flag if using intel or amd
-    distrobox create -n uwuntu-podman --image ubuntu:20.04 \
-    --additional-packages "systemd libsystemd0 git inetutils-ping inetutils-traceroute build-essential podman" \
-    --init --unshare-netns --unshare-ipc --nvidia # omit the --nvidia flag if using intel or amd
+    BASE_PACKAGES="systemd libsystemd0 git inetutils-ping inetutils-traceroute build-essential libglib2.0-dev"
 
-    distrobox enter uwuntu-docker
-    sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml --device-name-strategy=uuid
-    sudo nvidia-ctk runtime configure --runtime=docker
-    sudo systemctl enable --now docker
-    sudo usermod -aG docker $USER
-    exit
+    distrobox create -n uwuntu-docker --image ubuntu:22.04 \
+    --additional-packages "$BASE_PACKAGES docker docker-compose" \
+    --yes --init --unshare-netns --unshare-ipc --nvidia # omit the --nvidia flag if using intel or amd
+    distrobox create -n uwuntu-podman --image ubuntu:22.04 \
+    --additional-packages "$BASE_PACKAGES podman docker-compose" \
+    --yes --init --unshare-netns --unshare-ipc --nvidia # omit the --nvidia flag if using intel or amd
 
+    echo "set -x \
+    && sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml --device-name-strategy=uuid \
+    && sudo nvidia-ctk runtime configure --runtime=docker \
+    && sudo systemctl enable --now docker \
+    && sudo usermod -aG docker $USER" |
+    distrobox enter uwuntu-docker -- bash
+
+    echo "set -x \
+    && sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml --device-name-strategy=uuid \
+    && sudo systemctl enable --now podman.socket" |
     distrobox enter uwuntu-podman
-    sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml --device-name-strategy=uuid
-    sudo nvidia-ctk runtime configure --runtime=podman
-    sudo systemctl enable --now podman.socket
-    sudo usermod -aG podman $USER
-    exit
 }
 
-# Function stub for removing containers
+stop_containers() {
+    echo "Stopping containers..."
+    distrobox stop --yes uwuntu-docker
+    distrobox stop --yes uwuntu-podman
+}
+
 remove_containers() {
+    stop_containers
     echo "Removing containers..."
-    distrobox stop uwuntu-docker
-    distrobox stop uwuntu-podman
-    distrobox rm uwuntu-docker
-    distrobox rm uwuntu-podman
+    distrobox rm -f uwuntu-docker
+    distrobox rm -f uwuntu-podman
 }
 
 # Validate the number of arguments
@@ -49,11 +52,15 @@ command="$1"
 # Use a case statement to handle the commands
 case "$command" in
     create-containers)
-        create_containers  # Call the function stub for creating containers
+        create_containers
         ;;
 
     remove-containers)
-        remove_containers  # Call the function stub for removing containers
+        remove_containers
+        ;;
+
+    stop-containers)
+        stop_containers
         ;;
 
     *)

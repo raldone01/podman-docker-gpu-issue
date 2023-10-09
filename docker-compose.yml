@@ -1,7 +1,7 @@
 version: '3.8'
 services:
-  other_cdi_test:
-    image: ubuntu
+  cdi_device_path_test:
+    image: ubuntu:22.04
     devices:
       - nvidia.com/gpu=all
     command:
@@ -9,8 +9,8 @@ services:
       - -c
       - |
         nvidia-smi -L
-  nvidia_test: # this is not working
-    image: ubuntu:20.04
+  reservation_test:
+    image: ubuntu:22.04
     deploy:
       resources:
         reservations:
@@ -23,8 +23,8 @@ services:
       - -c
       - |
         nvidia-smi -L
-  runtime_test: # this is working
-    image: ubuntu:20.04
+  nvidia_runtime_test:
+    image: ubuntu:22.04
     runtime: nvidia
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
@@ -33,15 +33,13 @@ services:
       - -c
       - |
         nvidia-smi -L
-  runtime_test2: # this should be working
-    image: ubuntu:20.04
+  cdi_device:
+    image: ubuntu:22.04
     devices:
      - nvidia.com/gpu=all
-    security_opt:
-      - "label=disable"
     command: nvidia-smi -L
-  cdi_test: # this is not working
-    image: ubuntu:20.04
+  cdi_driver_reservation_test:
+    image: ubuntu:22.04
     deploy:
       resources:
         reservations:

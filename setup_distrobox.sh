@@ -9,22 +9,22 @@ create_containers() {
 
     distrobox create -n uwuntu-docker --image ubuntu:22.04 \
     --additional-packages "$BASE_PACKAGES docker docker-compose" \
-    --yes --init --unshare-netns --unshare-ipc --nvidia # omit the --nvidia flag if using intel or amd
+    --root --no-entry --yes --init --unshare-netns --unshare-ipc --nvidia # omit the --nvidia flag if using intel or amd
     distrobox create -n uwuntu-podman --image ubuntu:22.04 \
     --additional-packages "$BASE_PACKAGES podman docker-compose" \
-    --yes --init --unshare-netns --unshare-ipc --nvidia # omit the --nvidia flag if using intel or amd
+    --root --no-entry --yes --init --unshare-netns --unshare-ipc --nvidia # omit the --nvidia flag if using intel or amd
 
     echo "set -x \
     && sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml --device-name-strategy=uuid \
     && sudo nvidia-ctk runtime configure --runtime=docker \
     && sudo systemctl enable --now docker \
     && sudo usermod -aG docker $USER" |
-    distrobox enter uwuntu-docker -- bash
+    distrobox enter --root uwuntu-docker -- bash
 
     echo "set -x \
     && sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml --device-name-strategy=uuid \
     && sudo systemctl enable --now podman.socket" |
-    distrobox enter uwuntu-podman
+    distrobox enter --root uwuntu-podman
 }
 
 stop_containers() {

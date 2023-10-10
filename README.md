@@ -20,5 +20,5 @@ Running `./setup_distrobox.sh remove-containers` will delete the containers crea
 distrobox enter --root uwuntu-docker -- bash
 uwuntu-docker# nvidia-smi -L
 uwuntu-docker# docker -v
-uwuntu-docker# docker-compose up
+uwuntu-docker# sudo docker-compose up
 ```

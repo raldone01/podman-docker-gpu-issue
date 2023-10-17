@@ -2,7 +2,26 @@
 set -x
 
 # set working directory to the directory of this script
-cd "$(dirname "$0")"
+cd "$(dirname "$0")" || exit
+
+display_help() {
+    echo "Usage: $0 COMMAND [OPTIONS]"
+    echo
+    echo "Commands:"
+    echo "  create-container CONTAINER_NAME PCI_ADDRESS      Create a container with the specified name and PCI address."
+    echo "  enter-container CONTAINER_NAME                  Enter the container with the specified name."
+    echo "  create-containers PCI_ADDRESS                   Create containers (uwuntu-docker, uwuntu-podman) with the specified PCI address."
+    echo "  remove-containers                               Remove the containers (uwuntu-docker, uwuntu-podman)."
+    echo "  stop-containers                                 Stop the containers (uwuntu-docker, uwuntu-podman)."
+    echo "  help                                            Show this help message."
+    echo
+    echo "Options:"
+    echo "  CONTAINER_NAME    The name of the container."
+    echo "  PCI_ADDRESS       The PCI address of the GPU."
+    echo
+    echo "Example:"
+    echo "  ./setup_lxc.sh create-container my-container 0000:0e:00.0"
+}
 
 wait_for_lxd_agent() {
   container_name="$1"
@@ -16,7 +35,17 @@ wait_for_lxd_agent() {
 common_setup() {
   sudo systemctl disable --now snapd.seeded.service
   sudo apt-get update -y
-  sudo apt-get install -y systemd libsystemd0 git inetutils-ping inetutils-traceroute build-essential libglib2.0-dev
+  sudo apt-get install -y systemd libsystemd0 git inetutils-ping inetutils-traceroute build-essential libglib2.0-dev nvidia-driver-535 nvidia-dkms-535
+
+  curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg \
+  && curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
+    sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
+    sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list \
+  && \
+    sudo apt-get update -y
+
+  sudo apt-get install -y nvidia-container-toolkit
+
   sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml --device-name-strategy=uuid
 }
 
@@ -26,10 +55,26 @@ podman_post_setup() {
 }
 
 docker_post_setup() {
-  sudo apt install -y docker docker-compose
+  # https://docs.docker.com/engine/install/ubuntu/
+  # Add Docker's official GPG key:
+  sudo apt-get update -y
+  sudo apt-get install -y ca-certificates curl gnupg
+  sudo install -m 0755 -d /etc/apt/keyrings
+  curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+  sudo chmod a+r /etc/apt/keyrings/docker.gpg
+
+  # Add the repository to Apt sources:
+  echo \
+    "deb [arch="$(dpkg --print-architecture)" signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+    "$(. /etc/os-release && echo "$VERSION_CODENAME")" stable" | \
+    sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+  sudo apt-get update -y
+
+  sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin docker-compose
+
   sudo nvidia-ctk runtime configure --runtime=docker
   sudo systemctl enable --now docker
-  sudo usermod -aG docker $USER
+  sudo usermod -aG docker "$USER"
 }
 
 # 0000:0e:00.0 vga NVIDIA Corporation TU117GL [T600] [10de:1fb1] (rev a1)
@@ -41,7 +86,7 @@ docker_post_setup() {
 
 host_common_setup() {
   container_name="$1"
-  sudo lxc config device add "$container_name" compose-data disk source=$(realpath .) path=/data
+  sudo lxc config device add "$container_name" compose-data disk source="$(realpath .)" path=/data
   sudo lxc config device set "$container_name" compose-data readonly true
   sudo lxc start "$container_name"
   wait_for_lxd_agent "$container_name"
@@ -65,13 +110,13 @@ create_container() {
   # Note: set if not --vm -c nvidia.runtime=true
   sudo lxc init ubuntu:22.04 "$container_name" --vm  -c security.secureboot=false < lxc-base.yml
   echo "Adding GPU $pci_address_of_gpu to $container_name"
-  sudo lxc config device add "$container_name" gpu1 gpu pci=$pci_address_of_gpu
+  sudo lxc config device add "$container_name" gpu1 gpu pci="$pci_address_of_gpu"
 
   echo "Setting up $container_name..."
   host_common_setup "$container_name"
   if [[ "$container_name" == "uwuntu-docker" ]]; then
     sudo lxc exec "$container_name" -- bash -c "$(declare -f docker_post_setup); docker_post_setup"
-  else if [[ "$container_name" == "uwuntu-podman" ]]; then
+  elif [[ "$container_name" == "uwuntu-podman" ]]; then
     sudo lxc exec "$container_name" -- bash -c "$(declare -f podman_post_setup); podman_post_setup"
   else
     echo "Unknown container name: $container_name"
@@ -98,7 +143,7 @@ enter_container() {
   # stop other containers
   if [[ "$container_name" == "uwuntu-docker" ]]; then
     sudo lxc stop --force uwuntu-podman
-  else if [[ "$container_name" == "uwuntu-podman" ]]; then
+  elif [[ "$container_name" == "uwuntu-podman" ]]; then
     sudo lxc stop --force uwuntu-docker
   else
     echo "Unknown container name: $container_name"
@@ -108,7 +153,7 @@ enter_container() {
   echo "Entering container $container_name..."
   sudo lxc start "$container_name"
   wait_for_lxd_agent "$container_name"
-  sudo lxc exec "$container_name" -- bash
+  sudo lxc exec "$container_name" -- bash -c "cd /data && bash"
 }
 
 stop_containers() {
@@ -126,7 +171,7 @@ remove_containers() {
 
 # Validate the number of arguments
 if [ "$#" -lt 1 ]; then
-    echo "Usage: ./setup_lxc.sh <create-containers|remove-containers> [additional_args]"
+    display_help
     exit 1
 fi
 
@@ -156,10 +201,12 @@ case "$command" in
         stop_containers "$@"
         ;;
 
+    help)
+        display_help
+        ;;
     *)
-        # If an unknown command is passed
         echo "Unknown command: $command"
-        echo "Usage: ./setup_lxc.sh <create-containers|remove-containers>"
+        display_help
         exit 1
         ;;
 esac

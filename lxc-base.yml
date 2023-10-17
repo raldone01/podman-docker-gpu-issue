@@ -12,4 +12,6 @@ ephemeral: false
 profiles:
   - default
 stateful: false
+limits:
+  cpu: 8
 description: ""

@@ -1,16 +1,8 @@
 version: '3.8'
 services:
-  cdi_device_path_test:
-    image: ubuntu:22.04
-    devices:
-      - nvidia.com/gpu=all
-    command:
-      - bash
-      - -c
-      - |
-        nvidia-smi -L
   reservation_test:
     image: ubuntu:22.04
+    command: nvidia-smi -L
     deploy:
       resources:
         reservations:
@@ -18,39 +10,26 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu, utility, compute]
-    command:
-      - bash
-      - -c
-      - |
-        nvidia-smi -L
   nvidia_runtime_test:
     image: ubuntu:22.04
+    command: nvidia-smi -L
     runtime: nvidia
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
-    command:
-      - bash
-      - -c
-      - |
-        nvidia-smi -L
   cdi_device:
     image: ubuntu:22.04
+    command: nvidia-smi -L
     devices:
      - nvidia.com/gpu=all
-    command: nvidia-smi -L
-  cdi_driver_reservation_test:
-    image: ubuntu:22.04
-    deploy:
-      resources:
-        reservations:
-          devices:
-           - driver: cdi
-             device_ids:
-                - nvidia.com/gpu=all
-                - nvidia.com/gds=all
-                - nvidia.com/mofed=all
-    command:
-      - bash
-      - -c
-      - |
-        nvidia-smi -L
+  # cdi_driver_reservation_test:
+  #   image: ubuntu:22.04
+  #   command: nvidia-smi -L
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #          - driver: cdi
+  #            device_ids:
+  #               - nvidia.com/gpu=all
+  #               - nvidia.com/gds=all
+  #               - nvidia.com/mofed=all

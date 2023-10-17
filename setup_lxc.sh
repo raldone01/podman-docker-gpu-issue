@@ -4,6 +4,12 @@ set -x
 # set working directory to the directory of this script
 cd "$(dirname "$0")" || exit
 
+#distro_version="ubuntu"
+#version="22.04"
+
+distro_version="debian"
+version="12"
+
 display_help() {
     echo "Usage: $0 COMMAND [OPTIONS]"
     echo
@@ -50,8 +56,9 @@ common_setup() {
 }
 
 podman_post_setup() {
-  sudo apt install -y podman
+  sudo apt install -y podman python3-pip
   sudo systemctl enable --now podman.socket
+  pip3 install podman-compose
 }
 
 docker_post_setup() {
@@ -93,6 +100,17 @@ host_common_setup() {
   sudo lxc exec "$container_name" -- bash -c "$(declare -f common_setup); common_setup"
 }
 
+stop_other_containers() {
+  container_name="$1"
+
+  if [[ "$container_name" != "uwuntu-docker" ]]; then
+    sudo lxc stop --force uwuntu-docker
+  fi
+  if [[ "$container_name" != "uwuntu-podman" ]]; then
+    sudo lxc stop --force uwuntu-podman
+  fi
+}
+
 create_container() {
   container_name="$1"
   if [[ -z "$container_name" ]]; then
@@ -105,6 +123,8 @@ create_container() {
     echo "No PCI address provided for the GPU."
     exit 1
   fi
+
+  stop_other_containers "$container_name"
 
   echo "Creating container $container_name..."
   # Note: set if not --vm -c nvidia.runtime=true
@@ -140,15 +160,7 @@ enter_container() {
     exit 1
   fi
 
-  # stop other containers
-  if [[ "$container_name" == "uwuntu-docker" ]]; then
-    sudo lxc stop --force uwuntu-podman
-  elif [[ "$container_name" == "uwuntu-podman" ]]; then
-    sudo lxc stop --force uwuntu-docker
-  else
-    echo "Unknown container name: $container_name"
-    exit 1
-  fi
+  stop_other_containers "$container_name"
 
   echo "Entering container $container_name..."
   sudo lxc start "$container_name"

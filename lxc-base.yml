@@ -1,0 +1,15 @@
+architecture: x86_64
+config:
+  image.architecture: amd64
+  image.description: ubuntu 22.04 LTS amd64 (release) (20231010)
+  image.label: release
+  image.os: ubuntu
+  image.release: jammy
+  image.serial: "20231010"
+  image.type: squashfs
+  image.version: "22.04"
+ephemeral: false
+profiles:
+  - default
+stateful: false
+description: ""

@@ -4,11 +4,11 @@ set -x
 # set working directory to the directory of this script
 cd "$(dirname "$0")" || exit
 
-#distro_version="ubuntu"
-#version="22.04"
+# distro="ubuntu"
+# distro_slug="ubuntu:22.04"
 
-distro_version="debian"
-version="12"
+distro="debian"
+distro_slug="images:debian/12"
 
 display_help() {
     echo "Usage: $0 COMMAND [OPTIONS]"
@@ -32,6 +32,7 @@ display_help() {
 wait_for_lxd_agent() {
   container_name="$1"
   echo "Waiting for LXD agent to start in $container_name..."
+  # not working: lxc-wait -n "$container_name" -s RUNNING
   while ! sudo lxc exec "$container_name" /bin/true > /dev/null 2>&1; do
     sleep 1
   done
@@ -39,9 +40,26 @@ wait_for_lxd_agent() {
 }
 
 common_setup() {
-  sudo systemctl disable --now snapd.seeded.service
   sudo apt-get update -y
-  sudo apt-get install -y systemd libsystemd0 git inetutils-ping inetutils-traceroute build-essential libglib2.0-dev nvidia-driver-535 nvidia-dkms-535
+  sudo apt-get install -y systemd libsystemd0 git inetutils-ping inetutils-traceroute build-essential libglib2.0-dev curl gnupg
+
+  if [[ "$distro" == "ubuntu" ]]; then
+    sudo systemctl disable --now snapd.seeded.service
+    sudo apt-get install -y --no-install-recommends nvidia-headless-535 nvidia-utils-535
+    # sudo apt-get install -y ubuntu-drivers-common
+    # sudo ubuntu-drivers autoinstall
+  elif [[ "$distro" == "debian" ]]; then
+    echo "deb http://deb.debian.org/debian/ bookworm main contrib non-free non-free-firmware" | sudo tee /etc/apt/sources.list
+
+    sudo apt-get update -y
+    export DEBIAN_FRONTEND=noninteractive
+    sudo -E apt-get install -y -f firmware-misc-nonfree nvidia-driver-bin nvidia-kernel-dkms linux-headers-amd64 nvidia-smi libcuda1
+    sudo modprobe -r nouveau
+    sudo modprobe nvidia-current
+  else
+    echo "Unknown distro: $distro"
+    exit 1
+  fi
 
   curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg \
   && curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
@@ -56,9 +74,16 @@ common_setup() {
 }
 
 podman_post_setup() {
-  sudo apt install -y podman python3-pip
+  sudo apt install -y podman python3-pip pipx
   sudo systemctl enable --now podman.socket
-  pip3 install podman-compose
+  pipx install podman-compose
+  pipx ensurepath
+}
+
+run_cmd_in_container() {
+  container_name="$1"
+  cmd="$2"
+  sudo lxc exec "$container_name" -- bash -c "distro=$distro; distro_slug=$distro_slug; $cmd"
 }
 
 docker_post_setup() {
@@ -67,12 +92,12 @@ docker_post_setup() {
   sudo apt-get update -y
   sudo apt-get install -y ca-certificates curl gnupg
   sudo install -m 0755 -d /etc/apt/keyrings
-  curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+  curl -fsSL https://download.docker.com/linux/$distro/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
   sudo chmod a+r /etc/apt/keyrings/docker.gpg
 
   # Add the repository to Apt sources:
   echo \
-    "deb [arch="$(dpkg --print-architecture)" signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+    "deb [arch="$(dpkg --print-architecture)" signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/$distro \
     "$(. /etc/os-release && echo "$VERSION_CODENAME")" stable" | \
     sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
   sudo apt-get update -y
@@ -97,7 +122,7 @@ host_common_setup() {
   sudo lxc config device set "$container_name" compose-data readonly true
   sudo lxc start "$container_name"
   wait_for_lxd_agent "$container_name"
-  sudo lxc exec "$container_name" -- bash -c "$(declare -f common_setup); common_setup"
+  run_cmd_in_container "$container_name" "$(declare -f common_setup); common_setup"
 }
 
 stop_other_containers() {
@@ -128,21 +153,22 @@ create_container() {
 
   echo "Creating container $container_name..."
   # Note: set if not --vm -c nvidia.runtime=true
-  sudo lxc init ubuntu:22.04 "$container_name" --vm  -c security.secureboot=false < lxc-base.yml
+  sudo lxc init "$distro_slug" "$container_name" --vm  -c security.secureboot=false < lxc-base.yml
   echo "Adding GPU $pci_address_of_gpu to $container_name"
   sudo lxc config device add "$container_name" gpu1 gpu pci="$pci_address_of_gpu"
 
   echo "Setting up $container_name..."
   host_common_setup "$container_name"
   if [[ "$container_name" == "uwuntu-docker" ]]; then
-    sudo lxc exec "$container_name" -- bash -c "$(declare -f docker_post_setup); docker_post_setup"
+    run_cmd_in_container "$container_name" "$(declare -f docker_post_setup); docker_post_setup"
   elif [[ "$container_name" == "uwuntu-podman" ]]; then
-    sudo lxc exec "$container_name" -- bash -c "$(declare -f podman_post_setup); podman_post_setup"
+    run_cmd_in_container "$container_name" "$(declare -f podman_post_setup); podman_post_setup"
   else
     echo "Unknown container name: $container_name"
     exit 1
   fi
-  sudo lxc stop "$container_name"
+  # sudo lxc stop "$container_name" hangs indefinitely
+  run_cmd_in_container "$container_name" "sudo systemctl poweroff"
 }
 
 create_containers() {
@@ -195,26 +221,32 @@ shift
 case "$command" in
     create-container)
         create_container "$@"
+        exit 0
         ;;
 
     enter-container)
         enter_container "$@"
+        exit 0
         ;;
 
     create-containers)
         create_containers "$@"
+        exit 0
         ;;
 
     remove-containers)
         remove_containers "$@"
+        exit 0
         ;;
 
     stop-containers)
         stop_containers "$@"
+        exit 0
         ;;
 
     help)
         display_help
+        exit 0
         ;;
     *)
         echo "Unknown command: $command"

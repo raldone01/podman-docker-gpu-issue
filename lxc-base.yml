@@ -8,10 +8,9 @@ config:
   image.serial: "20231010"
   image.type: squashfs
   image.version: "22.04"
+  limits.cpu: 4
 ephemeral: false
 profiles:
   - default
 stateful: false
-limits:
-  cpu: 8
 description: ""
